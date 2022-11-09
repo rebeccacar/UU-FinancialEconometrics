@@ -1,0 +1,157 @@
+---
+title: "Report for PS 1"
+author:
+- Yukai Yang
+- Another Author
+date: ""
+output:
+  html_document:
+    df_print: paged
+  df_print: kable
+  pdf_document:
+    keep_tex: yes
+toc: no
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(FE)
+```
+
+#  Statistical Properties of Asset Returns
+
+## Distributional properties of Dow Jones index returns
+
+Plot the Dow Jones daily by using R built-in functions:
+```{r PLOT1, echo=F}
+plot(DJ_d$r_Dow_Jones,type='l', main='log returns of the daily Dow Jones index',
+     ylab='log return',xlab='time horizon')
+ggplot(DJ_d, aes(y=r_Dow_Jones,x=1:nrow(DJ_d))) + geom_line() +
+  labs(x='time horizon',y='daily log return')
+```
+
+```{r PLOT2, echo=F}
+ggplot(DJ_d, aes(r_Dow_Jones)) + geom_density()
+ggplot(DJ_d, aes(r_Dow_Jones)) + geom_histogram(binwidth=.002)
+ggplot(DJ_d) + geom_qq(aes(sample=r_Dow_Jones/sd(r_Dow_Jones))) +
+  geom_abline(aes(intercept=0,slope=1),color="red")
+```
+
+```{r descr, echo=F}
+library(psych)
+describe(DJ_d$r_Dow_Jones)
+describe(DJ_w$r_close)
+```
+
+
+```{r tdist}
+df = 3
+tmp = ggplot(DJ_d, aes(sample=r_Dow_Jones/sd(r_Dow_Jones)*sqrt(df/(df-2))))
+tmp + geom_qq(distribution=stats::qt, dparams=list(df=df)) + geom_abline(aes(intercept=0,slope=1),color="red")
+#qqplot(rt(length(DJ_d$r_Dow_Jones),df=5),DJ_d$r_Dow_Jones)
+```
+
+
+```{r good, include=F}
+vdata = DJ_d$r_Dow_Jones
+#vdata = DJ_d$r_close
+vdata = (vdata - mean(vdata))/sd(vdata)
+ik = 20
+grids = 1:ik/ik
+```
+
+
+```{r gooda}
+vq = pnorm(vdata)
+hist(vq)
+ggplot(data=tibble(vq),aes(vq))+geom_histogram()
+vn = NULL; for(val in grids) vn = c(vn,sum(vq <= val))
+vn = c(vn[1],diff(vn))
+test = sum((vn-length(vdata)/ik)**2/(length(vdata)/ik))
+cat("test =",test," df =",ik-3," p-value =",1-pchisq(test,df=ik-3))
+```
+
+
+```{r goodb}
+df = 3
+ndata = vdata*sqrt(df/(df-2))
+vq = pt(ndata,df=5); hist(vq)
+vn = NULL; for(val in grids) vn = c(vn,sum(vq <= val))
+vn = c(vn[1],diff(vn))
+test = sum((vn-length(vdata)/ik)**2/(length(vdata)/ik))
+cat("test =",test," df =",ik-3," p-value =",1-pchisq(test,df=ik-3))
+```
+
+```{r}
+alpha = 0.1514736
+sigma = 4.0013995
+ndata = vdata * sqrt((1-alpha) + alpha*sigma**2)
+vq = (1-alpha)*pnorm(ndata) + alpha*pnorm(ndata,sd=sigma); hist(vq)
+vn = NULL; for(val in grids) vn = c(vn,sum(vq <= val))
+vn = c(vn[1],diff(vn))
+test = sum((vn-length(vdata)/ik)**2/(length(vdata)/ik))
+cat("test =",test," df =",ik-3," p-value =",1-pchisq(test,df=ik-3))
+```
+
+Write a function for minimization to choose the optimal pair for $\alpha$ and $\sigma$.
+```{r}
+func <- function(vx){
+  alpha = vx[1]
+  sigma = vx[2]
+  ndata = vdata*sqrt((1-alpha) + alpha*sigma**2)
+
+  vq = (1-alpha)*pnorm(ndata) + alpha*pnorm(ndata,sd=sigma)
+  vn = NULL; for(val in grids) vn = c(vn,sum(vq <= val))
+  vn = c(vn[1],diff(vn))
+  return(sum((vn-length(vdata)/ik)**2/(length(vdata)/ik)))
+}
+
+func(c(0.15,4))
+```
+
+
+```{r}
+optim(par=c(0.15,4),fn=func,method="BFGS")
+optim(par=c(0.15,4),fn=func,method="L-BFGS-B",lower=c(0,0),upper=c(1,10)) 
+```
+
+```{r, cache=T}
+atmp = seq(from=0.05, to=.95, length.out=40)
+stmp = seq(from=1, to=10, length.out=50)
+tmp = expand.grid(atmp,stmp)
+res = apply(tmp,1,func)
+res = t(matrix(res, nrow=length(atmp)))
+
+library(plotly)
+ret = plot_ly(x=atmp, y=stmp, z=res) %>% add_surface() %>%
+  layout(scene=list(xaxis=list(title='alpha'), yaxis=list(title='sigma'), zaxis=list(title='function')))
+ret
+```
+
+##  Dynamical properties of financial return series
+
+```{r setupb, include=F}
+data = index_d
+```
+
+```{r}
+lret = apply(log(data),2,diff)
+summary(lret)
+matplot(lret,type='l',ylab='log returns',xlab='time horizon')
+
+sum(is.na(lret[,'FRCAC40']))
+```
+
+```{r}
+LB <- function(vx,lag,ip){
+  tmp = acf(vx,lag.max=lag,plot=F)$acf
+  tmp = tmp[2:(lag+1)]**2
+  test = sum(tmp/(length(vx)-1:lag))*length(vx)*(length(vx)+2)
+  return(list(test=test, pval=1-pchisq(test,df=lag-ip)))
+}
+
+tmp = 6
+LB(vx=lret[!is.na(lret[,tmp]),tmp],lag=100,ip=0)
+```
+
